@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Good Samaritan Society – Nebraska Market Map</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📍</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --mine: #FF1FCE; --snf: #1D5BD8; --assisted: #22E04B; --independent: #FF8C00;
+    --hospital: #C8102E; --other: #8B94A5;
+    --ink: #1C2333; --muted: #5C6679; --line: #E1E5EC; --soft: #F4F6F9;
+    --font: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: var(--font); color: var(--ink); background: #E9ECF1; }
+  #map { position: absolute; inset: 0; }
+
+  .panel {
+    position: absolute; z-index: 1000;
+    top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px;
+    width: 340px; max-height: calc(100% - 24px);
+    background: #fff; border-radius: 14px; box-shadow: 0 6px 24px rgba(20,30,50,.18);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+  .panel-head h1 { font-size: 17px; line-height: 1.25; margin: 0; font-weight: 700; }
+  .panel-head p { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
+  .collapse-btn { flex: none; border: 0; background: #F1F3F7; color: var(--ink); width: 34px; height: 34px; border-radius: 50%; font-size: 18px; cursor: pointer; display: none; }
+  .panel-body { padding: 8px 16px 14px; overflow-y: auto; }
+
+  .legend { list-style: none; margin: 0 0 10px; padding: 0; }
+  .legend li { border-bottom: 1px solid var(--line); }
+  .legend li:last-child { border-bottom: 0; }
+  .legend label { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; cursor: pointer; }
+  .legend input { width: 17px; height: 17px; margin: 0; accent-color: var(--ink); }
+  .legend .name { flex: 1; }
+  .legend .count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  .sw { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+  .sw.mine { width: 20px; height: 20px; background: var(--mine); border-width: 3px; }
+  .sw.snf { background: var(--snf); border-radius: 4px; }
+  .sw.otherSnf { background: var(--other); border-radius: 3px; width: 12px; height: 12px; }
+  .sw.assisted { background: var(--assisted); }
+  .sw.independent { background: var(--independent); }
+  .sw.hospital { background: var(--hospital); color: #fff; font: 700 13px/12px var(--font); text-align: center; }
+  .sw.rings { background: rgba(255,31,206,.08); border: 2px dashed var(--mine); box-shadow: none; }
+
+  .status { font-size: 13px; line-height: 1.45; color: var(--muted); background: var(--soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+  .status.error { background: #FDEEF0; color: #8A1024; }
+  .status button { margin-top: 6px; }
+  .spinner { display: inline-block; width: 11px; height: 11px; margin-right: 6px; vertical-align: -1px; border: 2px solid #C5CBD6; border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 4px 0 8px; font-weight: 600; }
+  .market { display: grid; gap: 8px; margin-bottom: 12px; }
+  .mcard { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; text-align: left; font: inherit; color: inherit; cursor: pointer; width: 100%; }
+  .mcard:hover { border-color: var(--mine); }
+  .mcard strong { display: block; font-size: 14px; margin-bottom: 2px; }
+  .mcard .own { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .mstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .mstat { background: var(--soft); border-radius: 6px; padding: 5px 4px; text-align: center; }
+  .mstat b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .mstat span { font-size: 10.5px; color: var(--muted); line-height: 1.2; display: block; }
+  .mstat i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; vertical-align: 1px; }
+  .snfbeds { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { font: 600 13px var(--font); color: var(--ink); background: #fff; border: 1px solid #C9CFD9; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  .btn:hover { background: var(--soft); }
+  .btn:focus-visible, .legend input:focus-visible, .collapse-btn:focus-visible, .mcard:focus-visible { outline: 3px solid var(--mine); outline-offset: 2px; }
+  .note { font-size: 12px; color: var(--muted); margin: 10px 0 0; line-height: 1.45; }
+
+  .m-hosp { width: 20px; height: 20px; border-radius: 50%; background: var(--hospital); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); color: #fff; font: 700 15px/16px var(--font); text-align: center; }
+  .m-snf { width: 16px; height: 16px; border-radius: 4px; background: var(--snf); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.45); }
+  .m-osnf { width: 10px; height: 10px; border-radius: 3px; background: var(--other); border: 1.5px solid #fff; box-shadow: 0 0 2px rgba(0,0,0,.4); }
+
+  .leaflet-popup-content { font-family: var(--font); font-size: 13px; line-height: 1.45; margin: 12px 14px; min-width: 220px; }
+  .pop-type { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .pop-type i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .pop-name { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
+  .pop-cap { font-size: 14px; font-weight: 600; margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
+  .pop-row { color: var(--muted); }
+  .pop-row a { color: #0B57D0; }
+  .pop-dist { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+  .pop-table { border-collapse: collapse; width: 100%; margin: 6px 0; font-variant-numeric: tabular-nums; }
+  .pop-table th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding: 3px 6px 3px 0; }
+  .pop-table td { padding: 3px 6px 3px 0; border-bottom: 1px solid var(--soft); vertical-align: top; }
+  .pop-table td.n { text-align: right; }
+  .stars { color: #B7791F; letter-spacing: 1px; }
+  .approx { color: #8A5A00; font-size: 12px; }
+
+  @media (max-width: 640px) {
+    .panel { top: auto; left: 8px; right: 8px; width: auto; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); max-height: 58%; }
+    .collapse-btn { display: block; }
+    .panel.collapsed .panel-body { display: none; }
+    .leaflet-bottom.leaflet-right { bottom: 70px; }
+  }
+</style>
+</head>
+<body>
+<div id="map" role="application" aria-label="Map of Good Samaritan Society campuses and nearby competitors"></div>
+
+<section class="panel" id="panel" aria-label="Legend and market summary">
+  <div class="panel-head">
+    <div>
+      <h1>Nebraska market map</h1>
+      <p>Good Samaritan Society campuses and competitors within 20 miles</p>
+    </div>
+    <button class="collapse-btn" id="collapseBtn" aria-expanded="true" aria-controls="panelBody" aria-label="Hide panel">▾</button>
+  </div>
+  <div class="panel-body" id="panelBody">
+    <ul class="legend" id="legend"></ul>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+    <h2>Within 20 miles of each campus</h2>
+    <div class="market" id="market"></div>
+    <div class="actions">
+      <button class="btn" id="fitBtn">Zoom to campuses</button>
+      <button class="btn" id="exportBtn">Download for Excel</button>
+    </div>
+    <p class="note">Your campuses and units: your facility mapping. Skilled nursing: CMS Care Compare (processed not yet provided). Hospitals, assisted living and independent living: OpenStreetMap, which may miss some smaller communities.</p>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+/* ============ SETTINGS ============ */
+const RADIUS_MILES = 20;
+const COLORS = {
+  mine: '#FF1FCE',        // Good Samaritan Society campuses (bright magenta)
+  snf: '#1D5BD8',         // competitor skilled nursing within 20 mi (blue)
+  otherSnf: '#8B94A5',    // other skilled nursing in the state (gray)
+  assisted: '#22E04B',    // assisted living (bright green)
+  independent: '#FF8C00', // independent / senior living (orange)
+  hospital: '#C8102E'     // hospitals (crimson)
+};
+
+/* ============ DATA (from Nebraska.xlsx) ============
+   CAMPUSES: your locations from the FacilityMapping tab. Campuses without
+   latitude/longitude are located from their address when the page loads.
+   To pin one exactly, type its lat/lon in below.
+   SNFS: every other Nebraska skilled nursing facility from the SNF tab. */
+const DATA = {"state": "Nebraska", "st": "NE", "center": [41.5, -99.8], "snfNote": "Skilled nursing competitors will appear once Nebraska CMS data is added.", "camps": [{"facility": "GSS - Albion NE|1222 S SEVENTH STREET", "managed": false, "address": "1222 S Seventh Street", "city": "Albion", "zip": "68620", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 28, "beds": null}, {"careType": "IL", "community": "Senior Living", "units": 13, "beds": null}, {"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 60, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Albion"}, {"facility": "GSS - Alma NE|719 N BROWN", "managed": false, "address": "719 N Brown", "city": "Alma", "zip": "68920", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 53, "ccn": null, "rating": null}, {"careType": "AL", "community": "Assisted Living", "units": 16, "beds": null}], "name": "Good Samaritan Society \u2013 Alma"}, {"facility": "GSS - Atkinson NE|409 E NEELY STREET", "managed": false, "address": "409 E Neely Street", "city": "Atkinson", "zip": "68713", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 12, "beds": null}, {"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 61, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Atkinson"}, {"facility": "GSS - Auburn NE|1322 \"U\" STREET", "managed": false, "address": "1322 \"U\" Street", "city": "Auburn", "zip": "68305", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 30, "beds": null}, {"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 102, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Auburn"}, {"facility": "GSS - Beatrice NE|401 S 22ND STREET", "managed": false, "address": "401 S 22nd Street", "city": "Beatrice", "zip": "68310", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 30, "beds": null}, {"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 80, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Beatrice"}, {"facility": "GSS - Bloomfield NE|300 N 2ND ST", "managed": false, "address": "300 N 2nd St", "city": "Bloomfield", "zip": "68718", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 70, "ccn": null, "rating": null}, {"careType": "AL", "community": "Assisted Living", "units": 16, "beds": null}], "name": "Good Samaritan Society \u2013 Bloomfield"}, {"facility": "GSS - Grand Island, NE|4075 TIMBERLINE STREET", "managed": false, "address": "4075 Timberline Street", "city": "Grand Island", "zip": "68803", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 44, "beds": null}, {"careType": "IL", "community": "Senior Living", "units": 37, "beds": null}, {"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 67, "ccn": null, "rating": null}, {"careType": "IL", "community": "Twin Home Duplexes", "units": 42, "beds": null}], "name": "Good Samaritan Society \u2013 Grand Island"}, {"facility": "GSS - Hastings NE|926 EAST E ST", "managed": false, "address": "926 East E St", "city": "Hastings", "zip": "68901", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 175, "ccn": null, "rating": null}, {"careType": "AL", "community": "Assisted Living", "units": 64, "beds": null}, {"careType": "IL", "community": "Twin Home Duplexes", "units": 281, "beds": null}, {"careType": "IL", "community": "Senior Living", "units": 28, "beds": null}], "name": "Good Samaritan Society \u2013 Hastings"}, {"facility": "GSS - Kearney NE Pv Gardens|1705 PRAIRIE VIEW PL", "managed": false, "address": "1705 Prairie View Pl", "city": "Kearney", "zip": "68845", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 60, "beds": null}, {"careType": "IL", "community": "Twin Home Duplexes", "units": 2, "beds": null}], "name": "Good Samaritan Society \u2013 Kearney (Prairie View Gardens)"}, {"facility": "GSS - Kearney NE St John's|3410 CENTRAL AVE", "managed": false, "address": "3410 Central Ave", "city": "Kearney", "zip": "68847", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 56, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Kearney (St. John's)"}, {"facility": "GSS - Kearney NE St Luke's|2201 E 32ND ST", "managed": false, "address": "2201 E 32nd St", "city": "Kearney", "zip": "68847", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 60, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Kearney (St. Luke's)"}, {"facility": "GSS - Omaha NE|12856 DEAUVILLE DRIVE", "managed": false, "address": "12856 Deauville Drive", "city": "Omaha", "zip": "68137", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 106, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Omaha"}, {"facility": "GSS - Osceola NE|600 CENTER DR", "managed": false, "address": "600 Center Dr", "city": "Osceola", "zip": "68651", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 13, "beds": null}, {"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 47, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Osceola"}, {"facility": "GSS - Superior NE|1710 IDAHO ST", "managed": false, "address": "1710 Idaho St", "city": "Superior", "zip": "68978", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 24, "beds": null}, {"careType": "IL", "community": "Senior Living", "units": 12, "beds": null}, {"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 69, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Superior"}, {"facility": "GSS - Syracuse NE|1622 WALNUT ST", "managed": false, "address": "1622 Walnut St", "city": "Syracuse", "zip": "68446", "lat": null, "lon": null, "ccn": null, "rating": null, "services": [{"careType": "AL", "community": "Assisted Living", "units": 37, "beds": null}, {"careType": "SNF", "community": "Post Acute Skilled", "units": null, "beds": 88, "ccn": null, "rating": null}], "name": "Good Samaritan Society \u2013 Syracuse"}], "snfs": []};
+/* =================================================== */
+
+const CAMPUSES = DATA.camps, SNFS = DATA.snfs;
+const RADIUS_M = RADIUS_MILES * 1609.344;
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+const CACHE_DAYS = 7;
+
+const STATE = DATA.state, ST = DATA.st;
+const map = L.map('map').setView(DATA.center, 7);
+/* Basemaps (no API key needed). Color streets is the default; switch in the top-right corner. */
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+const esriAttr = 'Tiles &copy; <a href="https://www.esri.com">Esri</a>, HERE, Garmin, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const osmAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const BASEMAPS = {
+  'Color streets': L.tileLayer(ESRI + 'World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: esriAttr }),
+  'Color topographic': L.tileLayer(ESRI + 'World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: esriAttr }),
+  'Light gray': L.layerGroup([
+    L.tileLayer(ESRI + 'Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, attribution: esriAttr }),
+    L.tileLayer(ESRI + 'Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16 })
+  ]),
+  'Satellite': L.layerGroup([
+    L.tileLayer(ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagery &copy; <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics' }),
+    L.tileLayer(ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
+  ]),
+  'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: osmAttr })
+};
+BASEMAPS['Color streets'].addTo(map);
+L.control.layers(BASEMAPS, null, { position: 'topright', collapsed: true }).addTo(map);
+// If the default tiles fail to load, switch to OpenStreetMap automatically
+let tileErrors = 0, switched = false;
+BASEMAPS['Color streets'].on('tileerror', () => {
+  if (switched || ++tileErrors < 4) return;
+  switched = true;
+  map.removeLayer(BASEMAPS['Color streets']);
+  BASEMAPS['OpenStreetMap'].addTo(map);
+});
+map.createPane('ringsPane').style.zIndex = 390;
+map.createPane('lowPane').style.zIndex = 600;
+map.createPane('nearbyPane').style.zIndex = 620;
+map.createPane('minePane').style.zIndex = 660;
+
+const layers = { mine: L.layerGroup(), snf: L.layerGroup(), hospital: L.layerGroup(), assisted: L.layerGroup(), independent: L.layerGroup(), otherSnf: L.layerGroup(), rings: L.layerGroup() };
+const LEGEND = [
+  { key: 'mine', label: 'Your campuses' },
+  { key: 'snf', label: 'Competitor skilled nursing' },
+  { key: 'hospital', label: 'Hospitals' },
+  { key: 'assisted', label: 'Assisted living' },
+  { key: 'independent', label: 'Independent & senior living' },
+  { key: 'otherSnf', label: `Other ${STATE} skilled nursing` },
+  { key: 'rings', label: RADIUS_MILES + '-mile market area' }
+];
+['mine', 'snf', 'hospital', 'assisted', 'independent', 'rings'].forEach(k => layers[k].addTo(map));
+const counts = {};
+let located = [];                 // campuses with coordinates
+let nearbyRows = [];              // OSM results for export
+let snfRows = [];                 // competitor SNFs within radius for export
+let osmDone = false;
+
+/* ---------- helpers ---------- */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = n => Number(n).toLocaleString('en-US');
+function miles(a, b) {
+  const R = 3958.8, r = x => x * Math.PI / 180;
+  const dLat = r(b[0] - a[0]), dLon = r(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a[0])) * Math.cos(r(b[0])) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function nearest(lat, lon) {
+  let best = null, d = Infinity;
+  located.forEach(c => { const x = miles([c.lat, c.lon], [lat, lon]); if (x < d) { d = x; best = c; } });
+  return { campus: best, dist: d };
+}
+function stars(n) { n = Number(n); return Number.isFinite(n) && n > 0 ? `<span class="stars" aria-label="${n} of 5 stars">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</span>` : 'Not rated'; }
+function setStatus(html, isError) { const el = document.getElementById('status'); el.className = 'status' + (isError ? ' error' : ''); el.innerHTML = html; }
+function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+const phoneFmt = p => (p = String(p || '').replace(/\D/g, '')).length === 10 ? `(${p.slice(0, 3)}) ${p.slice(3, 6)}-${p.slice(6)}` : p;
+
+function campusTotals(c) {
+  const sum = t => c.services.filter(s => s.careType === t).reduce((a, s) => a + (Number(s.units) || 0) + (Number(s.beds) || 0), 0);
+  return { snf: sum('SNF'), al: sum('AL'), il: sum('IL') };
+}
+function campusSummary(c) {
+  const t = campusTotals(c), p = [];
+  if (t.snf) p.push(`${t.snf} SNF beds`);
+  if (t.al) p.push(`${t.al} AL units`);
+  if (t.il) p.push(`${t.il} IL units`);
+  return p.join(', ');
+}
+
+/* ---------- legend ---------- */
+function renderLegend() {
+  const ul = document.getElementById('legend');
+  ul.innerHTML = LEGEND.map(({ key, label }) => `<li><label>
+      <input type="checkbox" ${map.hasLayer(layers[key]) ? 'checked' : ''} data-key="${key}">
+      <span class="sw ${key}">${key === 'hospital' ? '+' : ''}</span>
+      <span class="name">${label}</span>
+      <span class="count">${counts[key] == null || key === 'rings' ? '' : fmt(counts[key])}</span>
+    </label></li>`).join('');
+  ul.querySelectorAll('input').forEach(inp => inp.addEventListener('change', e => {
+    const lg = layers[e.target.dataset.key];
+    e.target.checked ? lg.addTo(map) : map.removeLayer(lg);
+  }));
+}
+
+/* ---------- geocoding for campuses without coordinates ---------- */
+async function geocode(c) {
+  const key = 'geo-v1:' + [c.address, c.city, c.zip].join('|');
+  const hit = lsGet(key);
+  if (hit) return hit;
+  const tries = [
+    { street: c.address, city: c.city, state: STATE, postalcode: c.zip },
+    { q: `${c.address}, ${c.city}, ${ST} ${c.zip}` },
+    { postalcode: c.zip, state: STATE, approx: true }
+  ];
+  for (const t of tries) {
+    const params = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'us' });
+    Object.entries(t).forEach(([k, v]) => k !== 'approx' && params.set(k, v));
+    try {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?' + params);
+      const j = r.ok ? await r.json() : [];
+      await new Promise(res => setTimeout(res, 1100)); // be polite to the free service
+      if (j.length) {
+        const out = { lat: +j[0].lat, lon: +j[0].lon, approx: !!t.approx };
+        lsSet(key, out);
+        return out;
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+/* ---------- draw campuses & SNFs ---------- */
+function campusPopup(c) {
+  const rows = c.services.map(s => {
+    const qty = s.beds ? `${s.beds} beds` : s.units ? `${s.units} units` : 'Not listed';
+    return `<tr><td>${esc(s.careType)}</td><td>${esc(s.community)}</td><td class="n">${qty}</td></tr>`;
+  }).join('');
+  const snf = c.services.find(s => s.careType === 'SNF');
+  return `<div class="pop-type"><i style="background:${COLORS.mine}"></i>${c.managed ? 'Managed campus' : 'Your campus'}</div>
+    <p class="pop-name">${esc(c.name)}</p>
+    <div class="pop-row">${esc(c.address)}, ${esc(c.city)}, ${ST} ${esc(c.zip)}</div>
+    ${c.note ? `<div class="approx">${esc(c.note)}</div>` : ''}
+    ${c.approx ? '<div class="approx">Approximate location (ZIP code). Add exact coordinates in the data to fix.</div>' : ''}
+    <table class="pop-table"><tr><th>Care</th><th>Community</th><th style="text-align:right">Capacity</th></tr>${rows}</table>
+    ${snf ? `<div class="pop-row">CMS overall rating: ${stars(snf.rating)} &nbsp;CCN ${esc(snf.ccn)}</div>` : ''}`;
+}
+function snfPopup(s, near) {
+  return `<div class="pop-type"><i style="background:${near ? COLORS.snf : COLORS.otherSnf};border-radius:2px"></i>Skilled nursing${near ? ' competitor' : ''}</div>
+    <p class="pop-name">${esc(s.name)}</p>
+    <div class="pop-cap">${fmt(s.beds)} certified beds${s.census ? `, ${s.census} avg residents/day` : ''}</div>
+    <div class="pop-row">CMS overall rating: ${stars(s.rating)}</div>
+    <div class="pop-row">${esc(s.address)}, ${esc(s.city)} ${esc(s.zip)}</div>
+    <div class="pop-row">${esc(phoneFmt(s.phone))}</div>
+    <div class="pop-row">${esc(s.owner)}${s.chain ? ` · ${esc(s.chain)}` : ''}</div>
+    ${near ? `<div class="pop-dist">${near.dist.toFixed(1)} mi from <strong>${esc(near.campus.name)}</strong></div>` : ''}`;
+}
+
+function drawCampuses() {
+  layers.mine.clearLayers(); layers.rings.clearLayers();
+  located.forEach(c => {
+    L.circle([c.lat, c.lon], { pane: 'ringsPane', radius: RADIUS_M, color: COLORS.mine, weight: 1.5, dashArray: '6 6', fillColor: COLORS.mine, fillOpacity: 0.03, interactive: false }).addTo(layers.rings);
+    L.circleMarker([c.lat, c.lon], { pane: 'minePane', radius: 12, color: '#fff', weight: 3, fillColor: COLORS.mine, fillOpacity: 1 })
+      .bindPopup(campusPopup(c))
+      .bindTooltip(`<strong>${esc(c.name)}</strong><br>${esc(campusSummary(c))}`, { direction: 'top', offset: [0, -12] })
+      .addTo(layers.mine);
+  });
+  counts.mine = located.length;
+}
+
+function drawSnfs() {
+  layers.snf.clearLayers(); layers.otherSnf.clearLayers(); snfRows = [];
+  const snfIcon = L.divIcon({ className: '', html: '<div class="m-snf"></div>', iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8] });
+  const oIcon = L.divIcon({ className: '', html: '<div class="m-osnf"></div>', iconSize: [10, 10], iconAnchor: [5, 5], popupAnchor: [0, -5] });
+  SNFS.forEach(s => {
+    const n = nearest(s.lat, s.lon);
+    const inRange = n.campus && n.dist <= RADIUS_MILES;
+    if (inRange) {
+      s._within = located.filter(c => miles([c.lat, c.lon], [s.lat, s.lon]) <= RADIUS_MILES).map(c => c.facility);
+      snfRows.push({ ...s, near: n.campus.name, dist: n.dist });
+      L.marker([s.lat, s.lon], { icon: snfIcon, pane: 'nearbyPane' }).bindPopup(snfPopup(s, n)).addTo(layers.snf);
+    } else {
+      s._within = [];
+      L.marker([s.lat, s.lon], { icon: oIcon, pane: 'lowPane' }).bindPopup(snfPopup(s, null)).addTo(layers.otherSnf);
+    }
+  });
+  counts.snf = snfRows.length;
+  counts.otherSnf = SNFS.length - snfRows.length;
+}
+
+/* ---------- market summary per campus ---------- */
+function renderMarket() {
+  const el = document.getElementById('market');
+  el.innerHTML = located.map(c => {
+    const snfs = SNFS.filter(s => s._within.includes(c.facility));
+    const beds = snfs.reduce((a, s) => a + (Number(s.beds) || 0), 0);
+    const osm = t => osmDone ? nearbyRows.filter(r => r.type === t && r.within.includes(c.facility)).length : '…';
+    return `<button class="mcard" data-f="${esc(c.facility)}">
+      <strong>${esc(c.name.replace('Good Samaritan Society – ', ''))}</strong>
+      <div class="own">Yours: ${esc(campusSummary(c))}</div>
+      <div class="mstats">
+        <div class="mstat"><b>${snfs.length}</b><span><i style="background:${COLORS.snf};border-radius:2px"></i>SNFs</span></div>
+        <div class="mstat"><b>${osm('hospital')}</b><span><i style="background:${COLORS.hospital}"></i>Hospitals</span></div>
+        <div class="mstat"><b>${osm('assisted')}</b><span><i style="background:${COLORS.assisted}"></i>AL</span></div>
+        <div class="mstat"><b>${osm('independent')}</b><span><i style="background:${COLORS.independent}"></i>IL</span></div>
+      </div>
+      <div class="snfbeds">${fmt(beds)} competitor SNF beds within ${RADIUS_MILES} mi</div>
+    </button>`;
+  }).join('') || '<div class="note">Campus locations are still loading.</div>';
+  el.querySelectorAll('.mcard').forEach(b => b.onclick = () => {
+    const c = located.find(x => x.facility === b.dataset.f);
+    map.fitBounds(L.circle([c.lat, c.lon], { radius: RADIUS_M }).addTo(map).getBounds(), fitPad());
+    map.eachLayer(l => { if (l instanceof L.Circle && !layers.rings.hasLayer(l)) map.removeLayer(l); });
+    layers.mine.eachLayer(m => { const ll = m.getLatLng(); if (ll.lat === c.lat && ll.lng === c.lon) m.openPopup(); });
+    if (window.innerWidth <= 640) collapse(true);
+  });
+}
+
+function fitPad() { return window.innerWidth > 640 ? { paddingTopLeft: [370, 20], paddingBottomRight: [20, 20] } : { padding: [16, 16] }; }
+function fitCampuses() {
+  if (!located.length) return;
+  const b = L.latLngBounds([]);
+  layers.rings.eachLayer(c => b.extend(c.getBounds()));
+  map.fitBounds(b, fitPad());
+}
+
+/* ---------- nearby hospitals / AL / IL from OpenStreetMap ---------- */
+function buildQuery() {
+  const bb = L.latLngBounds([]);
+  located.forEach(c => bb.extend(L.latLng(c.lat, c.lon).toBounds(RADIUS_M * 2)));
+  const box = [bb.getSouth(), bb.getWest(), bb.getNorth(), bb.getEast()].map(n => n.toFixed(4)).join(',');
+  return `[out:json][timeout:50][bbox:${box}];
+    (nwr["amenity"="hospital"];
+     nwr["healthcare"="hospital"];
+     nwr["amenity"="social_facility"];
+     nwr["social_facility"];
+     nwr["amenity"="nursing_home"];
+     nwr["healthcare"="nursing_home"];
+     nwr["amenity"="retirement_home"];);
+    out center tags;`;
+}
+function classify(t) {
+  const name = (t.name || '').toLowerCase();
+  if (t.shop || t.office || /veterinar|animal|pet /.test(name)) return null;
+  if (t.amenity === 'hospital' || t.healthcare === 'hospital') return 'hospital';
+  const sf = t.social_facility || '', sfFor = t['social_facility:for'] || '';
+  if (/assisted living|memory care|assisted care/.test(name) || sf === 'assisted_living') return 'assisted';
+  if (/independent living|senior living|senior apartments|senior community|senior residence|retirement (community|residence|village)/.test(name)) return 'independent';
+  if (t.amenity === 'retirement_home') return 'independent';
+  if (/senior/.test(sfFor) && !/nursing_home/.test(sf) && t.amenity !== 'nursing_home') return 'independent';
+  return null; // nursing homes are covered by the CMS skilled nursing data
+}
+let lastOverpassError = '';
+async function overpass(query) {
+  const errors = [];
+  for (const url of OVERPASS) {
+    for (const method of ['POST', 'GET']) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 70000);
+      try {
+        const r = method === 'POST'
+          ? await fetch(url, { method, signal: ctl.signal, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(query) })
+          : await fetch(url + '?data=' + encodeURIComponent(query), { signal: ctl.signal });
+        clearTimeout(timer);
+        if (!r.ok) { errors.push(`${new URL(url).host} ${method}: HTTP ${r.status}`); continue; }
+        return (await r.json()).elements || [];
+      } catch (e) {
+        clearTimeout(timer);
+        errors.push(`${new URL(url).host} ${method}: ${e.name === 'AbortError' ? 'timed out' : 'blocked or unreachable'}`);
+      }
+    }
+  }
+  lastOverpassError = errors.join('; ');
+  console.warn('Overpass errors:', lastOverpassError);
+  throw new Error(lastOverpassError);
+}
+async function findNearby(force) {
+  const key = 'nearby-v4:' + RADIUS_MILES + ':' + located.map(c => c.lat.toFixed(4) + ',' + c.lon.toFixed(4)).sort().join('|');
+  const cached = lsGet(key);
+  let els = !force && cached && Date.now() - cached.t < CACHE_DAYS * 864e5 ? cached.data : null;
+  if (!els) {
+    setStatus(`<span class="spinner" aria-hidden="true"></span>Finding hospitals, assisted living and independent living within ${RADIUS_MILES} miles…`);
+    try {
+      els = [];
+      els = await overpass(buildQuery());
+      els = els.map(e => ({ id: e.type + e.id, lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, tags: e.tags || {} })).filter(e => e.lat != null);
+      lsSet(key, { t: Date.now(), data: els });
+    } catch (e) {
+      setStatus(`The OpenStreetMap search didn't respond, so hospitals and senior living aren't shown yet. Skilled nursing competitors are unaffected.<br><span style="font-size:11px">Details: ${esc(lastOverpassError)}</span><br><button class="btn" id="retryBtn">Try again</button>`, true);
+      document.getElementById('retryBtn').onclick = () => findNearby(true);
+      return;
+    }
+  }
+  drawNearby(els);
+}
+function nearbyPopup(p, type, n) {
+  const t = p.tags, labels = { hospital: 'Hospital', assisted: 'Assisted living', independent: 'Independent / senior living' };
+  const addr = [[t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '), t['addr:city']].filter(Boolean).join(', ');
+  const site = t.website || t['contact:website'], phone = t.phone || t['contact:phone'];
+  return `<div class="pop-type"><i style="background:${COLORS[type]}"></i>${labels[type]}</div>
+    <p class="pop-name">${esc(t.name || 'Unnamed ' + labels[type].toLowerCase())}</p>
+    ${addr ? `<div class="pop-row">${esc(addr)}</div>` : ''}
+    ${phone ? `<div class="pop-row">${esc(phone)}</div>` : ''}
+    ${site && /^https?:\/\//i.test(site) ? `<div class="pop-row"><a href="${esc(site)}" target="_blank" rel="noopener">Website</a></div>` : ''}
+    <div class="pop-dist">${n.dist.toFixed(1)} mi from <strong>${esc(n.campus.name)}</strong></div>`;
+}
+function drawNearby(els) {
+  ['hospital', 'assisted', 'independent'].forEach(k => layers[k].clearLayers());
+  nearbyRows = [];
+  const seen = new Set(), c = { hospital: 0, assisted: 0, independent: 0 };
+  const hospIcon = L.divIcon({ className: '', html: '<div class="m-hosp">+</div>', iconSize: [20, 20], iconAnchor: [10, 10], popupAnchor: [0, -10] });
+  els.forEach(p => {
+    if (seen.has(p.id)) return; seen.add(p.id);
+    const type = classify(p.tags); if (!type) return;
+    const n = nearest(p.lat, p.lon);
+    if (!n.campus || n.dist > RADIUS_MILES) return;
+    if (/samaritan/i.test(p.tags.name || '') && n.dist < 0.3) return; // skip your own campus
+    const m = type === 'hospital'
+      ? L.marker([p.lat, p.lon], { icon: hospIcon, pane: 'nearbyPane' })
+      : L.circleMarker([p.lat, p.lon], { pane: 'nearbyPane', radius: 7, weight: 1.5, fillOpacity: 1, fillColor: COLORS[type], color: type === 'assisted' ? '#0B5D1E' : '#7A3E00' });
+    m.bindPopup(nearbyPopup(p, type, n)).addTo(layers[type]);
+    c[type]++;
+    const t = p.tags;
+    nearbyRows.push({
+      name: t.name || 'Unnamed', type, lat: p.lat, lon: p.lon, near: n.campus.name, dist: n.dist,
+      within: located.filter(x => miles([x.lat, x.lon], [p.lat, p.lon]) <= RADIUS_MILES).map(x => x.facility),
+      address: [[t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '), t['addr:city'], t['addr:postcode']].filter(Boolean).join(', '),
+      phone: t.phone || t['contact:phone'] || '', website: t.website || t['contact:website'] || ''
+    });
+  });
+  osmDone = true;
+  Object.assign(counts, c);
+  renderLegend(); renderMarket();
+  setStatus(`Showing ${counts.snf} skilled nursing competitors, ${c.hospital} hospitals, ${c.assisted} assisted living and ${c.independent} independent or senior living communities within ${RADIUS_MILES} miles of your campuses.${DATA.snfNote ? ' ' + DATA.snfNote : ''}`);
+}
+
+/* ---------- export for Excel ---------- */
+const CAT = { mine: '1 Your campus', snf: '2 Competitor SNF', hospital: '3 Hospital', assisted: '4 Assisted living', independent: '5 Independent / senior living' };
+const SIZE = { mine: 3, snf: 2, hospital: 2, assisted: 1.5, independent: 1.5 };
+document.getElementById('exportBtn').onclick = () => {
+  const blank = { Beds: '', Units: '', 'SNF beds': '', 'AL units': '', 'IL units': '', 'CMS overall rating': '', 'Nearest GSS campus': '', 'Distance (mi)': '', Address: '', Phone: '', Website: '' };
+  const rows = [
+    ...located.map(c => { const t = campusTotals(c); const snf = c.services.find(s => s.careType === 'SNF');
+      return { Name: c.name, Category: CAT.mine, Latitude: c.lat, Longitude: c.lon, Size: SIZE.mine, ...blank,
+        Beds: t.snf || '', Units: (t.al + t.il) || '', 'SNF beds': t.snf || '', 'AL units': t.al || '', 'IL units': t.il || '',
+        'CMS overall rating': snf?.rating ?? '', Address: `${c.address}, ${c.city}, ${ST} ${c.zip}` }; }),
+    ...snfRows.map(s => ({ Name: s.name, Category: CAT.snf, Latitude: s.lat, Longitude: s.lon, Size: SIZE.snf, ...blank,
+      Beds: s.beds, 'SNF beds': s.beds, 'CMS overall rating': s.rating ?? '', 'Nearest GSS campus': s.near, 'Distance (mi)': s.dist.toFixed(1),
+      Address: `${s.address}, ${s.city}, ${ST} ${s.zip}`, Phone: phoneFmt(s.phone) })),
+    ...nearbyRows.map(r => ({ Name: r.name, Category: CAT[r.type], Latitude: r.lat, Longitude: r.lon, Size: SIZE[r.type], ...blank,
+      'Nearest GSS campus': r.near, 'Distance (mi)': r.dist.toFixed(1), Address: r.address, Phone: r.phone, Website: r.website }))
+  ];
+  const url = URL.createObjectURL(new Blob(['\ufeff' + Papa.unparse(rows)], { type: 'text/csv;charset=utf-8' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: `gss-${STATE.toLowerCase()}-market-map.csv` });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+/* ---------- UI ---------- */
+document.getElementById('fitBtn').onclick = fitCampuses;
+const panel = document.getElementById('panel'), collapseBtn = document.getElementById('collapseBtn');
+function collapse(state) {
+  const c = panel.classList.toggle('collapsed', state);
+  collapseBtn.setAttribute('aria-expanded', String(!c));
+  collapseBtn.setAttribute('aria-label', c ? 'Show panel' : 'Hide panel');
+  collapseBtn.textContent = c ? '▴' : '▾';
+}
+collapseBtn.onclick = () => collapse();
+
+/* ---------- start ---------- */
+(async function init() {
+  renderLegend();
+  const missing = CAMPUSES.filter(c => c.lat == null);
+  located = CAMPUSES.filter(c => c.lat != null);
+  drawCampuses(); drawSnfs(); renderLegend(); renderMarket(); fitCampuses();
+  if (missing.length) {
+    setStatus(`<span class="spinner" aria-hidden="true"></span>Locating ${missing.length} campuses from their addresses…`);
+    for (const c of missing) {
+      const g = await geocode(c);
+      if (g) Object.assign(c, g);
+    }
+    located = CAMPUSES.filter(c => c.lat != null);
+    drawCampuses(); drawSnfs(); renderLegend(); renderMarket(); fitCampuses();
+    const failed = CAMPUSES.filter(c => c.lat == null);
+    if (failed.length) setStatus(`Couldn't locate ${failed.map(c => c.facility).join(', ')} from the address. Add latitude/longitude for it in the data.`, true);
+  }
+  findNearby(false);
+})();
+</script>
+</body>
+</html>
